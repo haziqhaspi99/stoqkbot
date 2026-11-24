@@ -4,7 +4,7 @@
 $botToken = getenv('TELEGRAM_BOT_TOKEN');
 $chatId   = getenv('TELEGRAM_CHAT_ID');
 
-$dropThreshold = -10.0; // Trigger when drop is more than 10% (i.e., <= -10.0%)
+$dropThreshold = 100.0; // Trigger when drop is more than 10% (i.e., <= -10.0%)
 
 // List of Bursa Malaysia stock codes to monitor
 $watchlist = [
