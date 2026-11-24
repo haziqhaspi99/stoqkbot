@@ -16,11 +16,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Bursa PHP Script
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: php bursa_alert.php
+     - name: Run Bursa PHP Script
+       env:
+         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+         TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+       run: php bursa_alert.php
+
+        
         
       - name: Save alert log if updated
         run: |
