@@ -49,25 +49,28 @@ foreach ($watchlist as $code => $name) {
 }
 
 function fetchBursaData(string $code): ?array {
-    // 1. Primary source: Stooq monthly CSV (works reliably on GitHub Actions)
-    $startDate = date('Ym01', strtotime('-2 months'));
-    $endDate   = date('Ymd');
-    $stooqUrl  = "https://stooq.com{$code}.my&d1={$startDate}&d2={$endDate}&i=m";
+    $apiKey = getenv('TWELVEDATA_API_KEY');
+    // Twelve Data uses XKU (Bursa Malaysia) exchange code
+    $url = "https://twelvedata.com{$code}:XKU&interval=1month&outputsize=2&apikey={$apiKey}";
 
-    $csv = httpGet($stooqUrl);
-    if ($csv && strpos($csv, 'Date,Open,High,Low,Close') !== false) {
-        $lines = array_values(array_filter(explode("\n", trim($csv))));
-        if (count($lines) >= 3) {
-            $prevRow = str_getcsv($lines[count($lines) - 2]);
-            $currRow = str_getcsv($lines[count($lines) - 1]);
-            if (isset($prevRow[4], $currRow[4]) && is_numeric($prevRow[4]) && is_numeric($currRow[4])) {
-                return [
-                    'prev_close'    => (float) $prevRow[4],
-                    'current_price' => (float) $currRow[4],
-                ];
-            }
-        }
+    $res = httpGet($url);
+    if (!$res) return null;
+
+    $json = json_decode($res, true);
+    $values = $json['values'] ?? [];
+
+    // values[0] is current month, values[1] is previous completed month
+    if (count($values) < 2) {
+        echo "API Message for {$code}: " . ($json['message'] ?? 'No data') . "\n";
+        return null;
     }
+
+    return [
+        'prev_close'    => (float) $values[1]['close'],
+        'current_price' => (float) $values[0]['close'],
+    ];
+}
+
 
     // 2. Fallback source: Yahoo Finance query2
     $yahooUrl = "https://yahoo.com{$code}.KL?range=3mo&interval=1mo";
