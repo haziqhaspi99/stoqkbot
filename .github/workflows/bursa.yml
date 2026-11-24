@@ -1,1 +1,30 @@
+name: Bursa Stock Alert
 
+on:
+  schedule:
+    - cron: '15 9 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-stocks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Bursa PHP Script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+        run: php bursa_alert.php
+      - name: Save alert log
+        run: |
+          if [ -f alerted_log.json ]; then
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git add alerted_log.json
+            git commit -m "Update alert log" || true
+            git push || true
+          fi
