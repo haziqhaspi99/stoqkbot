@@ -83,7 +83,7 @@ function fetchBursaData(string $symbol): ?array {
 
     if (!$result) return null;
 
-    $closes = $result['indicators']['quote'][0]['close'] ?? [];
+    $closes = $json['chart']['result'][0]['indicators']['quote'][0]['close'] ?? [];
     // Filter out null values
     $closes = array_values(array_filter($closes, fn($v) => $v !== null));
 
