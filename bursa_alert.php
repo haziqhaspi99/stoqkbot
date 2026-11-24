@@ -1,8 +1,9 @@
 <?php
 
-// 1. CONFIGURATION
-$botToken = '9023964151:AAHbbmJ7xAPVzr-ib5iA6jqFJhN-iHqBCdE';
-$chatId   = '1843264949';
+// 1. CONFIGURATION 
+$botToken = getenv('TELEGRAM_BOT_TOKEN');
+$chatId   = getenv('TELEGRAM_CHAT_ID');
+
 $dropThreshold = -10.0; // Trigger when drop is more than 10% (i.e., <= -10.0%)
 
 // List of Bursa Malaysia stock codes to monitor
