@@ -2,9 +2,8 @@ name: Bursa Stock Alert
 
 on:
   schedule:
-    # Runs at 9:15 AM UTC = 5:15 PM Malaysia Time (Mon-Fri)
     - cron: '15 9 * * 1-5'
-  workflow_dispatch: # Lets you click "Run workflow" manually to test
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -27,7 +26,7 @@ jobs:
         run: |
           if [ -f alerted_log.json ]; then
             git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.email "github-actions[bot]@://github.com"
             git add alerted_log.json
             git diff --quiet && git diff --staged --quiet || (git commit -m "Update alert log" && git push)
           fi
