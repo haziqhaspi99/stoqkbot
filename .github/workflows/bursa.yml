@@ -1,0 +1,30 @@
+name: Bursa Stock Alert
+
+on:
+  schedule:
+    # Runs at 9:15 AM UTC = 5:15 PM Malaysia Time (Mon-Fri)
+    - cron: '15 9 * * 1-5'
+  workflow_dispatch: # Lets you click "Run workflow" manually to test
+
+permissions:
+  contents: write
+
+jobs:
+  check-stocks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Bursa PHP Script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: php bursa_alert.php
+
+      - name: Save alert log if updated
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@://github.com"
+          git add alerted_log.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update alert log" && git push)
