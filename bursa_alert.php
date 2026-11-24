@@ -1,123 +1,118 @@
 <?php
 
-// 1. CONFIGURATION 
 $botToken = getenv('TELEGRAM_BOT_TOKEN');
 $chatId   = getenv('TELEGRAM_CHAT_ID');
+$dropThreshold = -10.0;
 
-$dropThreshold = -1.0; // Trigger when drop is more than 10% (i.e., <= -10.0%)
-
-// List of Bursa Malaysia stock codes to monitor
+// Use Bursa Malaysia 4-digit stock codes
 $watchlist = [
-    '4707.KL' => 'NESTLE',
-    '1155.KL' => 'MAYBANK',
-    '5347.KL' => 'TENAGA',
-    '7084.KL' => 'QL',
-    '3689.KL' => 'F&N',
+    '4707' => 'NESTLE',
+    '1155' => 'MAYBANK',
+    '5347' => 'TENAGA',
+    '7084' => 'QL',
+    '3689' => 'F&N',
 ];
 
 $logFile = __DIR__ . '/alerted_log.json';
 $alertedLog = file_exists($logFile) ? json_decode(file_get_contents($logFile), true) : [];
 $currentMonth = date('Y-m');
 
-// 2. LOOP THROUGH WATCHLIST
-foreach ($watchlist as $symbol => $name) {
-    $data = fetchBursaData($symbol);
-    
+foreach ($watchlist as $code => $name) {
+    $data = fetchBursaData($code);
     if (!$data) {
-        echo "Failed to fetch data for {$name} ({$symbol})\n";
+        echo "Failed to fetch data for {$name} ({$code})\n";
         continue;
     }
 
-    $prevMonthClose = $data['prev_close'];
-    $currentPrice   = $data['current_price'];
+    $prevClose = $data['prev_close'];
+    $current   = $data['current_price'];
+    $pctChange = (($current - $prevClose) / $prevClose) * 100;
+    $pctFmt    = number_format($pctChange, 2);
 
-    // Calculate percentage change from previous month's close
-    $pctChange = (($currentPrice - $prevMonthClose) / $prevMonthClose) * 100;
-    $pctFormatted = number_format($pctChange, 2);
+    echo "{$name} ({$code}): Prev RM {$prevClose} | Now RM {$current} ({$pctFmt}%)\n";
 
-    echo "{$name}: Prev Month RM {$prevMonthClose} | Now RM {$currentPrice} ({$pctFormatted}%)\n";
-
-    // 3. CHECK TRIGGER & PREVENT DUPLICATE ALERTS IN THE SAME MONTH
-    $alertKey = "{$symbol}_{$currentMonth}";
+    $alertKey = "{$code}_{$currentMonth}";
 
     if ($pctChange <= $dropThreshold && !isset($alertedLog[$alertKey])) {
-        $message = "🚨 *BURSA DROP ALERT (>10%)* 🚨\n\n"
-                 . "*Stock:* {$name} ({$symbol})\n"
-                 . "*Prev Month Close:* RM " . number_format($prevMonthClose, 2) . "\n"
-                 . "*Current Price:* RM " . number_format($currentPrice, 2) . "\n"
-                 . "*Monthly Change:* *{$pctFormatted}%*\n"
-                 . "*Action:* Check fundamentals for 1-lot entry.";
+        $msg = "🚨 *BURSA DROP ALERT (>10%)* 🚨\n\n"
+             . "*Stock:* {$name} ({$code})\n"
+             . "*Prev Month Close:* RM " . number_format($prevClose, 2) . "\n"
+             . "*Current Price:* RM " . number_format($current, 2) . "\n"
+             . "*Monthly Change:* *{$pctFmt}%*";
 
-        if (sendTelegramAlert($botToken, $chatId, $message)) {
+        if (sendTelegramAlert($botToken, $chatId, $msg)) {
             $alertedLog[$alertKey] = date('Y-m-d H:i:s');
             file_put_contents($logFile, json_encode($alertedLog, JSON_PRETTY_PRINT));
         }
     }
-
-    // Pause 1 second between requests to avoid rate limiting
     sleep(1);
 }
 
-// --- HELPER FUNCTIONS ---
+function fetchBursaData(string $code): ?array {
+    // 1. Primary source: Stooq monthly CSV (works reliably on GitHub Actions)
+    $startDate = date('Ym01', strtotime('-2 months'));
+    $endDate   = date('Ymd');
+    $stooqUrl  = "https://stooq.com{$code}.my&d1={$startDate}&d2={$endDate}&i=m";
 
-function fetchBursaData(string $symbol): ?array {
-    // Fetches 3 months of monthly interval candles
-    $url = "https://yahoo.com{$symbol}?range=3mo&interval=1mo";
+    $csv = httpGet($stooqUrl);
+    if ($csv && strpos($csv, 'Date,Open,High,Low,Close') !== false) {
+        $lines = array_values(array_filter(explode("\n", trim($csv))));
+        if (count($lines) >= 3) {
+            $prevRow = str_getcsv($lines[count($lines) - 2]);
+            $currRow = str_getcsv($lines[count($lines) - 1]);
+            if (isset($prevRow[4], $currRow[4]) && is_numeric($prevRow[4]) && is_numeric($currRow[4])) {
+                return [
+                    'prev_close'    => (float) $prevRow[4],
+                    'current_price' => (float) $currRow[4],
+                ];
+            }
+        }
+    }
 
-    $ch = curl_init();
+    // 2. Fallback source: Yahoo Finance query2
+    $yahooUrl = "https://yahoo.com{$code}.KL?range=3mo&interval=1mo";
+    $res = httpGet($yahooUrl);
+    if ($res) {
+        $json = json_decode($res, true);
+        $closes = $json['chart']['result'][0]['indicators']['quote'][0]['close'] ?? [];
+        $closes = array_values(array_filter($closes, fn($v) => $v !== null));
+        if (count($closes) >= 2) {
+            return [
+                'prev_close'    => (float) $closes[count($closes) - 2],
+                'current_price' => (float) $closes[count($closes) - 1],
+            ];
+        }
+    }
+
+    return null;
+}
+
+function httpGet(string $url): ?string {
+    $ch = curl_init($url);
     curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 10,
-        // User-Agent is required so Yahoo Finance doesn't block the request
-        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) PHP-Bursa-Monitor/1.0',
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     ]);
-
-    $response = curl_exec($ch);
+    $res = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-
-    if (!$response) return null;
-
-    $json = json_decode($response, true);
-    $result = $json['chart']['result'][0] ?? null;
-
-    if (!$result) return null;
-
-    $closes = $json['chart']['result'][0]['indicators']['quote'][0]['close'] ?? [];
-    // Filter out null values
-    $closes = array_values(array_filter($closes, fn($v) => $v !== null));
-
-    $count = count($closes);
-    if ($count < 2) return null;
-
-    return [
-        // Second-to-last candle is the previous completed month's close
-        'prev_close'    => (float) $closes[$count - 2],
-        // Last candle is the live/latest price of the current month
-        'current_price' => (float) $closes[$count - 1],
-    ];
+    return ($res && $httpCode === 200) ? $res : null;
 }
 
 function sendTelegramAlert(string $token, string $chatId, string $text): bool {
-    $url = "https://telegram.org{$token}/sendMessage";
-    $postData = [
-        'chat_id'    => $chatId,
-        'text'       => $text,
-        'parse_mode' => 'Markdown',
-    ];
-
-    $ch = curl_init();
+    $ch = curl_init("https://telegram.org{$token}/sendMessage");
     curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
         CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => http_build_query($postData),
+        CURLOPT_POSTFIELDS => http_build_query([
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'Markdown',
+        ]),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 10,
     ]);
-
     $res = curl_exec($ch);
     curl_close($ch);
-
-    $decoded = json_decode($res, true);
-    return $decoded['ok'] ?? false;
+    return json_decode($res, true)['ok'] ?? false;
 }
